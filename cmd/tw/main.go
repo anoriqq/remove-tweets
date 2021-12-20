@@ -1,10 +1,13 @@
 package main
 
 import (
+	"errors"
 	"flag"
+	"os"
 	"strconv"
 	"time"
 
+	"github.com/anoriqq/remove-tweets/internal/logger"
 	"github.com/anoriqq/remove-tweets/internal/twitter"
 )
 
@@ -14,6 +17,26 @@ var (
 	until      string
 )
 
+type config struct {
+	maxID      string
+	screenName string
+	until      string
+}
+
+func (c config) Valid() error {
+	if len(maxID) < 1 {
+		return errors.New("maxID is required")
+	}
+	if len(screenName) < 1 {
+		return errors.New("screenName is required")
+	}
+	if len(until) < 1 {
+		return errors.New("until is required")
+	}
+
+	return nil
+}
+
 func init() {
 	flag.StringVar(&maxID, "maxid", "", "maxID")
 	flag.StringVar(&screenName, "screenname", "", "screenName")
@@ -21,70 +44,82 @@ func init() {
 }
 
 func main() {
+	logger := logger.NewLogger()
+	logger.Info("start")
+
+	err := run()
+	if err != nil {
+		logger.Error(err.Error())
+		os.Exit(1)
+	}
+
+	logger.Info("completed")
+	os.Exit(0)
+}
+
+func run() error {
 	flag.Parse()
-	if len(maxID) < 1 {
-		return
+
+	c := config{
+		maxID:      maxID,
+		screenName: screenName,
+		until:      until,
 	}
-	if len(screenName) < 1 {
-		return
-	}
-	if len(until) < 1 {
-		return
+	err := c.Valid()
+	if err != nil {
+		return err
 	}
 
 	s := twitter.NewTwitterService()
 
 	u, err := s.GetUser(screenName)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	i, err := strconv.Atoi(maxID)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	maxID := int64(i)
 
 	until, err := time.Parse(time.RFC3339, until)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	for {
 		ts, err := s.GetTimeline(u.ID, maxID)
 		if err != nil {
-			panic(err)
+			return err
 		}
 		if len(ts) < 1 {
 			break
 		}
 
 		for _, t := range ts {
-			if !IsCreatedBeforeThresholdDateTime(t, until) {
+			// tがuntilよりも後に作成されていたらskip
+			createdAt, err := t.CreatedAtTime()
+			if err != nil {
+				return err
+			}
+			if createdAt.After(until) {
 				continue
 			}
 
 			if t.Retweeted {
 				err := s.Unretweet(t.ID)
 				if err != nil {
-					panic(err)
+					return err
 				}
 			} else {
 				err := s.Delete(t.ID)
 				if err != nil {
-					panic(err)
+					return err
 				}
 			}
 		}
 	}
-}
 
-// IsCreatedBeforeThresholdDateTime tがuntilよりも以前に作成されていたらtrue
-func IsCreatedBeforeThresholdDateTime(t twitter.Tweet, until time.Time) bool {
-	createdAt, err := t.CreatedAtTime()
-	if err != nil {
-		panic(err)
-	}
-
-	return createdAt.Before(until)
+	return nil
 }
