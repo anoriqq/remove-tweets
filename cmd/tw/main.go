@@ -1,45 +1,23 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"os"
-	"strconv"
-	"time"
 
+	"github.com/anoriqq/remove-tweets/internal/config"
 	"github.com/anoriqq/remove-tweets/internal/logger"
 	"github.com/anoriqq/remove-tweets/internal/twitter"
 )
 
 var (
-	maxID      string
 	screenName string
+	maxID      string
 	until      string
 )
 
-type config struct {
-	maxID      string
-	screenName string
-	until      string
-}
-
-func (c config) Valid() error {
-	if len(maxID) < 1 {
-		return errors.New("maxID is required")
-	}
-	if len(screenName) < 1 {
-		return errors.New("screenName is required")
-	}
-	if len(until) < 1 {
-		return errors.New("until is required")
-	}
-
-	return nil
-}
-
 func init() {
-	flag.StringVar(&maxID, "maxid", "", "maxID")
 	flag.StringVar(&screenName, "screenname", "", "screenName")
+	flag.StringVar(&maxID, "maxid", "", "maxID")
 	flag.StringVar(&until, "until", "", "until")
 }
 
@@ -60,50 +38,36 @@ func main() {
 func run() error {
 	flag.Parse()
 
-	c := config{
-		maxID:      maxID,
-		screenName: screenName,
-		until:      until,
-	}
-	err := c.Valid()
+	c, err := config.NewConfig(screenName, maxID, until)
 	if err != nil {
 		return err
 	}
 
 	s := twitter.NewTwitterService()
 
-	u, err := s.GetUser(screenName)
+	u, err := s.GetUser(c.ScreenName)
 	if err != nil {
 		return err
 	}
 
-	i, err := strconv.Atoi(maxID)
-	if err != nil {
-		return err
-	}
-	maxID := int64(i)
-
-	until, err := time.Parse(time.RFC3339, until)
-	if err != nil {
-		return err
-	}
-
+	// 削除可能なtweetがなくなるまでloop
 	for {
-		ts, err := s.GetTimeline(u.ID, maxID)
+		tt, err := s.GetTimeline(u.ID, c.MaxID)
 		if err != nil {
 			return err
 		}
-		if len(ts) < 1 {
+		if len(tt) < 1 {
 			break
 		}
 
-		for _, t := range ts {
+		for _, t := range tt {
 			// tがuntilよりも後に作成されていたらskip
+			// TODO: maxID指定してるのでこの判定処理いらないのでは
 			createdAt, err := t.CreatedAtTime()
 			if err != nil {
 				return err
 			}
-			if createdAt.After(until) {
+			if createdAt.After(c.Until) {
 				continue
 			}
 
