@@ -1,6 +1,6 @@
 module github.com/anoriqq/remove-tweets
 
-go 1.16
+go 1.17
 
 require (
 	github.com/dghubble/go-twitter v0.0.0-20211115160449-93a8679adecb
